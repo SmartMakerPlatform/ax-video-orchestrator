@@ -1,49 +1,69 @@
 # ax-video-orchestrator
 
-AWS Lightsail Ubuntu 서버에서 실행할 FastAPI 기반 영상 생성 오케스트레이터의 PoC 프로젝트입니다.
+스마트메이커의 영상 생성 요청을 받아 Google Veo 작업을 비동기로 조율하는 FastAPI PoC입니다. 현재 운영 구성은 AWS Lightsail Ubuntu 24.04, Uvicorn(`127.0.0.1:8000`), Caddy HTTPS 역방향 프록시입니다.
 
-## 프로젝트 목표
-
-이 프로젝트는 영상 생성 요청을 받아 향후 외부 영상 생성 서비스와 작업 흐름을 조율하는 API 서버를 검증하기 위한 저장소입니다.
-
-현재 단계에서는 프로젝트 운영 문서와 디렉터리 골격만 구성합니다. FastAPI 엔드포인트, 영상 생성 연동, 작업 큐, 데이터 저장소 등의 실제 기능은 아직 구현하지 않습니다.
-
-## 대상 환경
-
-- Python
-- FastAPI
-- Ubuntu 24.04 LTS
-- AWS Lightsail
-
-구체적인 Python 버전, 의존성 관리 방식, 실행 및 배포 절차는 기능 구현 단계에서 확정합니다.
-
-## 디렉터리 구조
+## 처리 흐름
 
 ```text
-ax-video-orchestrator/
-├── app/        # 애플리케이션 코드
-├── docs/       # 설계 및 운영 문서
-├── tests/      # 테스트 코드
-├── AGENTS.md   # 저장소 작업 원칙
-└── README.md   # 프로젝트 개요
+스마트메이커 → POST /jobs → FastAPI가 job_id/queued 즉시 반환
+                              ↓ 백그라운드
+                         Google Veo operation
+                              ↓ 상태 폴링
+                         outputs/{job_id}.mp4
 ```
 
-빈 디렉터리를 Git에서 유지하기 위해 각 디렉터리에 `.gitkeep` 파일을 둡니다.
+`provider`를 생략하면 기존 호환 동작인 `mock`이 사용됩니다. 실제 Veo는 `provider: "veo"`를 명시한 요청에서만 선택됩니다.
 
-## 현재 범위
+## API
 
-- 저장소 작업 원칙 정의
-- 프로젝트 개요 문서화
-- Python 프로젝트용 Git 제외 규칙 설정
-- 애플리케이션, 테스트, 문서 디렉터리 구성
+- `GET /health`: `{"status":"ok"}`
+- `POST /jobs`: 작업 접수. 기존 응답 계약인 `job_id`, `status: queued`를 유지합니다.
+- `GET /jobs/{job_id}`: queued, processing, completed, failed 상태와 공개 가능한 작업 정보를 조회합니다.
+- `GET /jobs/{job_id}/video`: 완료된 MP4를 내려받습니다. 완료 전에는 HTTP 409를 반환합니다.
 
-## 보안 및 운영 원칙
+Mock 작업은 인증 없이 기존처럼 호출할 수 있습니다.
 
-- 비밀키와 API 키를 저장소에 커밋하지 않습니다.
-- SSH 포트와 `sshd` 설정을 변경하지 않습니다.
-- `sudo` 또는 시스템 설정 변경이 필요하면 실행 전에 목적과 영향을 설명합니다.
-- 기능 변경 후 관련 테스트를 실행합니다.
-- commit과 push는 사용자 확인 후 수행합니다.
+```json
+{
+  "prompt": "아이와 강아지가 여름 바닷가를 달리는 영상",
+  "provider": "mock"
+}
+```
 
-자세한 작업 규칙은 [AGENTS.md](AGENTS.md)를 참고하세요.
+Veo 작업의 생성·상태 조회·영상 다운로드에는 `X-API-Key` 헤더가 필요합니다. 토큰이 서버에 설정되지 않았거나 일치하지 않으면 HTTP 401을 반환하며 작업을 생성하지 않습니다. queued 또는 processing 상태인 Veo 작업은 한 번에 하나만 허용됩니다.
 
+```text
+X-API-Key: <ORCHESTRATOR_API_KEY>
+```
+
+## 환경변수
+
+`.env.example`을 참고하십시오. 실제 비밀값은 Git에 추가하지 않은 환경 파일 또는 서비스 환경으로 전달해야 합니다.
+
+```text
+GEMINI_API_KEY=replace-with-your-key
+ORCHESTRATOR_API_KEY=replace-with-a-long-random-token
+VEO_MODEL=veo-3.1-lite-generate-preview
+```
+
+`ORCHESTRATOR_API_KEY`는 클라이언트가 유료 Veo 요청을 호출하기 위한 서버 전용 인증 토큰이며 Google의 `GEMINI_API_KEY`와 별개입니다. `VEO_MODEL`이 없으면 `veo-3.1-lite-generate-preview`가 기본값입니다. `GEMINI_API_KEY`가 없으면 인증된 Veo 작업도 안전하게 `failed`가 되며 키 자체는 응답에 포함되지 않습니다.
+
+## 로컬 설치 및 Mock 테스트
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pytest -q
+```
+
+테스트는 Fake 공급자를 사용하며 Google API를 호출하지 않아 과금되지 않습니다. 실제 `provider: "veo"` 요청은 Google API 사용료가 발생할 수 있습니다.
+
+## 출력과 현재 PoC 제약
+
+- 생성 영상은 Git에서 제외된 `outputs/{job_id}.mp4`에 저장됩니다.
+- 작업 상태는 프로세스 메모리에만 저장되므로 서비스 재시작 시 사라집니다.
+- 재시작 시 실행 중인 백그라운드 작업도 중단되며 자동 복구되지 않습니다.
+- Redis, Celery, 데이터베이스 및 영구 작업 큐는 아직 사용하지 않습니다.
+- 현재 인증은 하나의 공유 토큰을 사용하는 최소 PoC 방식이며 사용자별 권한, 토큰 회전, 요청 속도 제한은 아직 없습니다.
+
+비밀키, API 키, 토큰은 소스, README, 로그 또는 Git 추적 파일에 기록하지 마십시오. 자세한 작업 원칙은 `AGENTS.md`를 따릅니다.
