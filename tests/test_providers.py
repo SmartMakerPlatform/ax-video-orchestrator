@@ -1,8 +1,26 @@
 from types import SimpleNamespace
 
 import pytest
+from google.genai import models
 
-from app.providers import GoogleVeoProvider
+from app.providers import GoogleVeoProvider, build_veo_config
+
+
+def test_veo_config_converts_for_gemini_api_without_network() -> None:
+    config = build_veo_config()
+    request: dict[str, object] = {}
+
+    models._GenerateVideosConfig_to_mldev(config, request, config)
+
+    assert config.generate_audio is None
+    assert request == {
+        "parameters": {
+            "sampleCount": 1,
+            "resolution": "720p",
+            "aspectRatio": "16:9",
+            "durationSeconds": 8,
+        }
+    }
 
 
 @pytest.mark.parametrize(

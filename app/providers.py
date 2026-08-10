@@ -6,16 +6,19 @@ from uuid import uuid4
 from google import genai
 from google.genai import errors, types
 
+
 class ProviderError(Exception):
     def __init__(self, code: str, public_message: str) -> None:
         super().__init__(public_message)
         self.code = code
         self.public_message = public_message
 
+
 @dataclass(frozen=True)
 class ProviderOperation:
     name: str
     handle: Any
+
 
 @dataclass(frozen=True)
 class PollResult:
@@ -23,10 +26,12 @@ class PollResult:
     operation: ProviderOperation
     video_handle: Any | None = None
 
+
 class VideoProvider(Protocol):
     def start(self, prompt: str, model: str) -> ProviderOperation: ...
     def poll(self, operation: ProviderOperation) -> PollResult: ...
     def download(self, video_handle: Any, destination: Path) -> None: ...
+
 
 class MockVideoProvider:
     def start(self, prompt: str, model: str) -> ProviderOperation:
@@ -38,6 +43,16 @@ class MockVideoProvider:
 
     def download(self, video_handle: Any, destination: Path) -> None:
         destination.write_bytes(video_handle)
+
+
+def build_veo_config() -> types.GenerateVideosConfig:
+    return types.GenerateVideosConfig(
+        number_of_videos=1,
+        resolution="720p",
+        aspect_ratio="16:9",
+        duration_seconds=8,
+    )
+
 
 class GoogleVeoProvider:
     def __init__(self, api_key: str | None) -> None:
@@ -56,13 +71,7 @@ class GoogleVeoProvider:
             operation = self._get_client().models.generate_videos(
                 model=model,
                 prompt=prompt,
-                config=types.GenerateVideosConfig(
-                    number_of_videos=1,
-                    resolution="720p",
-                    aspect_ratio="16:9",
-                    duration_seconds=8,
-                    generate_audio=True,
-                ),
+                config=build_veo_config(),
             )
             return ProviderOperation(operation.name or "", operation)
         except ProviderError:
