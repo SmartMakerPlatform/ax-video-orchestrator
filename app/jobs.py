@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 
 from app.auth import require_api_key
 from app.config import load_settings
-from app.job_models import JobCreate, JobCreateResponse, JobDetail, JobStatus
+from app.job_models import JobCreate, JobCreateResponse, JobDetail, JobStatus, JobStatusRequest
 from app.job_service import ActiveVeoJobError, JobService
 from app.job_store import InMemoryJobStore
 from app.providers import GoogleVeoProvider, MockVideoProvider
@@ -30,6 +30,14 @@ def authorize_if_veo(provider: str, api_key: str | None) -> None:
         require_api_key(api_key, settings.orchestrator_api_key)
 
 
+def get_job_detail(job_id: str, api_key: str | None) -> JobDetail:
+    job = job_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    authorize_if_veo(job.provider, api_key)
+    return JobDetail.model_validate(job.model_dump())
+
+
 @router.post("/jobs", response_model=JobCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
     request: JobCreate,
@@ -50,11 +58,16 @@ async def create_job(
 
 @router.get("/jobs/{job_id}", response_model=JobDetail)
 async def get_job(job_id: str, x_api_key: ApiKeyHeader = None) -> JobDetail:
-    job = job_store.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
-    authorize_if_veo(job.provider, x_api_key)
-    return JobDetail.model_validate(job.model_dump())
+    return get_job_detail(job_id, x_api_key)
+
+
+@router.post("/job-status", response_model=JobDetail)
+async def post_job_status(
+    request: JobStatusRequest,
+    x_api_key: ApiKeyHeader = None,
+) -> JobDetail:
+    require_api_key(x_api_key, settings.orchestrator_api_key)
+    return get_job_detail(request.job_id, x_api_key)
 
 
 @router.get("/jobs/{job_id}/video", response_class=FileResponse)

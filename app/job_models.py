@@ -24,6 +24,9 @@ class JobCreateResponse(BaseModel):
     job_id: str
     status: Literal[JobStatus.QUEUED]
 
+class JobStatusRequest(BaseModel):
+    job_id: str
+
 class JobDetail(BaseModel):
     job_id: str
     status: JobStatus
