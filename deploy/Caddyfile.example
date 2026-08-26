@@ -1,0 +1,4 @@
+# Replace this hostname when moving the service to another server.
+ax-video-orchestrator.duckdns.org {
+	reverse_proxy 127.0.0.1:8000
+}

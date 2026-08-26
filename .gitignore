@@ -48,6 +48,10 @@ htmlcov/
 Thumbs.db
 
 # Logs and local runtime data
+logs/
 *.log
 *.pid
-outputs/
+
+# Generated videos and partial downloads
+outputs/*
+!outputs/.gitkeep
